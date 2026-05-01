@@ -2,16 +2,18 @@
 <!--
   PHY config for UCLA scenario (no obstacle shadowing - no building polygon data).
 
-  CHANGED: Added NakagamiFading after SimplePathlossModel for urban multipath fading.
-  - SimplePathlossModel (alpha=2.0) unchanged.
-  - NakagamiFading: m=1.5 (urban NLOS typical), constM=true (constant m; Veins also
-    supports distance-based m via constM=false with M_CLOSE=1.5, M_FAR=0.75).
-  Improves real-world validity of V2V channel (expect lower PDR vs. pathloss-only).
+  SimplePathlossModel: alpha=2.75 (urban V2V per Karedal et al. 2009, Boban et al. 2014).
+  Previous value 2.0 was free-space; 2.75 represents LOS urban street canyon.
+
+  NakagamiFading: m=1.5 (urban NLOS typical), constM=true (constant m; Veins also
+  supports distance-based m via constM=false with M_CLOSE=1.5, M_FAR=0.75).
+  Note: m=1.5 is a single-value simplification; measurement campaigns show m varies
+  with distance (close: m~2-3, far: m~0.75-1.0). Disclose in Limitations.
 -->
 <root>
     <AnalogueModels>
         <AnalogueModel type="SimplePathlossModel" thresholding="true">
-            <parameter name="alpha" type="double" value="2.0"/>
+            <parameter name="alpha" type="double" value="2.75"/>
         </AnalogueModel>
         <AnalogueModel type="NakagamiFading">
             <parameter name="constM" type="bool" value="true"/>
@@ -22,3 +24,4 @@
         <parameter name="centerFrequency" type="double" value="5.890e9"/>
     </Decider>
 </root>
+

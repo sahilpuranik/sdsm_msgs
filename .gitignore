@@ -40,6 +40,12 @@ venv/
 *.swp
 .DS_Store
 Thumbs.db
+.claude/
+.cursor/
+*.local.md
+claude.local.md
+CLAUDE.local.md
+
 
 # ROS 2 build
 ros2_ws/build/
@@ -49,5 +55,3 @@ ros2_ws/log/
 # Logs
 *.log
 
-# AI tool config
-.claude/

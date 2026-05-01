@@ -59,15 +59,16 @@ namespace messages {
  *     int sdsm_day = 1;              // 1-31
  *     long sdsm_time_of_day_ms = 0;   // ms since midnight
  * 
- *     // === Detected objects array (up to 16 per J3224) ===
- *     int numObjects = 0;            // actual count of objects in this message (0..16)
- *     int obj_type[16];              // 1=vehicle per object
- *     int object_id[16];             // node index of detected object
- *     int offset_x[16];              // position offset from ref_pos, 0.1 m units
- *     int offset_y[16];
- *     int offset_z[16];
- *     int obj_speed[16];             // 0.02 m/s units (J2735)
- *     int obj_heading[16];           // 0.0125 deg units, 28800=unavailable
+ *     // === Detected objects array (up to 32 slots; K_max raised from 16 for HybridSDSM v2) ===
+ *     int numObjects = 0;                     // actual count of objects in this message (0..32)
+ *     int obj_type[32];                       // 1=vehicle per object
+ *     int object_id[32];                      // node index of detected object
+ *     int offset_x[32];                       // position offset from ref_pos, 0.1 m units
+ *     int offset_y[32];
+ *     int offset_z[32];
+ *     int obj_speed[32];                      // 0.02 m/s units (J2735)
+ *     int obj_heading[32];                    // 0.0125 deg units, 28800=unavailable
+ *     uint16_t obj_measurement_time_ms[32];   // ms since simulation start when this object was measured
  * }
  * </pre>
  */
@@ -91,13 +92,14 @@ class SdsmPayload : public ::omnetpp::cPacket
     int sdsm_day = 1;
     long sdsm_time_of_day_ms = 0;
     int numObjects = 0;
-    int obj_type[16] = {0};
-    int object_id[16] = {0};
-    int offset_x[16] = {0};
-    int offset_y[16] = {0};
-    int offset_z[16] = {0};
-    int obj_speed[16] = {0};
-    int obj_heading[16] = {0};
+    int obj_type[32] = {0};
+    int object_id[32] = {0};
+    int offset_x[32] = {0};
+    int offset_y[32] = {0};
+    int offset_z[32] = {0};
+    int obj_speed[32] = {0};
+    int obj_heading[32] = {0};
+    uint16_t obj_measurement_time_ms[32] = {0};
 
   private:
     void copy(const SdsmPayload& other);
@@ -193,6 +195,10 @@ class SdsmPayload : public ::omnetpp::cPacket
     virtual size_t getObj_headingArraySize() const;
     virtual int getObj_heading(size_t k) const;
     virtual void setObj_heading(size_t k, int obj_heading);
+
+    virtual size_t getObj_measurement_time_msArraySize() const;
+    virtual uint16_t getObj_measurement_time_ms(size_t k) const;
+    virtual void setObj_measurement_time_ms(size_t k, uint16_t obj_measurement_time_ms);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const SdsmPayload& obj) {obj.parsimPack(b);}

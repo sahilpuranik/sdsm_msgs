@@ -2,8 +2,9 @@
 """
 Experiment runner for V2V simulation.
 
-Runs simulations (Periodic, EventTriggered, Greedy, GreedyBSMImplied, HybridSDSM × seeds) in fast
-batch mode (no ROS bridge needed). GreedyROS requires a running ROS 2 bridge.
+Runs simulations (Periodic, EventTriggered, Greedy, GreedyBSMImplied, HybridSDSM,
+HybridSDSM_v2, Greedy_v2, EventTriggered_v2, GreedyBSMImplied_v2 × seeds)
+in fast batch mode (no ROS bridge needed). GreedyROS requires a running ROS 2 bridge.
 
 Usage:
   python run_experiments.py                    # all runs (no bridge needed except GreedyROS)
@@ -27,12 +28,24 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-ALGORITHMS = ["Periodic", "EventTriggered", "Greedy", "GreedyBSMImplied", "HybridSDSM", "GreedyROS"]
-# Algorithms that require the ROS 2 bridge to be running
+ALGORITHMS = [
+    "Periodic",
+    "EventTriggered",
+    "Greedy",
+    "GreedyBSMImplied",
+    "HybridSDSM",
+    "HybridSDSM_v2",
+    "Greedy_v2",
+    "EventTriggered_v2",
+    "GreedyBSMImplied_v2",
+    "GreedyROS",
+]
 ROS_ALGORITHMS = {"GreedyROS"}
-SEEDS = [0]
+SEEDS = list(range(10))
 SIM_DURATION_S = 300
 DEFAULT_NUM_VEHICLES = 400
+ROUTE_GEN_SCRIPT = "sumo/gen_ucla_routes.py"
+ROUTE_FILE = "sumo/routes.rou.xml"
 BRIDGE_UDP_PORT = 50010
 DOCKER_BRIDGE_NAME = "veins_ros_bridge"
 BRIDGE_START_WAIT_S = 5
@@ -82,6 +95,33 @@ def _get_sumo_path() -> Path | None:
         if p.exists():
             return p.resolve()
     return None
+
+
+def _generate_routes(root: Path, num_vehicles: int, log_fn) -> bool:
+    """Regenerate SUMO routes.rou.xml with the given vehicle count. Return True on success."""
+    script = root / ROUTE_GEN_SCRIPT
+    dt = min(0.4, 30.0 / num_vehicles)
+    cmd = [
+        sys.executable, str(script.resolve()),
+        "--n", str(num_vehicles),
+        "--seed", "42",
+        "--depart-dt", f"{dt:.4f}",
+    ]
+    log_fn(f"Generating routes: {num_vehicles} vehicles, depart-dt={dt:.4f}s ...")
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(root / "sumo"), capture_output=True, text=True, timeout=120,
+        )
+    except Exception as e:
+        log_fn(f"  Route generation FAIL: {e}")
+        return False
+    if result.returncode != 0:
+        log_fn(f"  Route generation FAIL (exit {result.returncode})")
+        if result.stderr:
+            log_fn(result.stderr[-1000:])
+        return False
+    log_fn(f"  Routes OK: {result.stdout.strip()}")
+    return True
 
 
 def _patch_omnetpp_ini_sumo(sim_dir: Path, sumo_path: Path) -> str | None:
@@ -428,7 +468,7 @@ def main() -> int:
         "--algorithm", "-a", choices=ALGORITHMS, help="Run only this algorithm"
     )
     parser.add_argument(
-        "--seed", "-s", type=int, choices=SEEDS, help="Run only this seed"
+        "--seed", "-s", type=int, help="Run only this seed (overrides default seed list)"
     )
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
     parser.add_argument(
@@ -436,6 +476,17 @@ def main() -> int:
         type=int,
         default=SIM_DURATION_S,
         help=f"Simulation duration in seconds (default: {SIM_DURATION_S})",
+    )
+    parser.add_argument(
+        "--num-vehicles", "-n",
+        type=int,
+        default=None,
+        help="Number of vehicles. Regenerates SUMO routes and organizes output under results/n<count>/.",
+    )
+    parser.add_argument(
+        "--skip-probe",
+        action="store_true",
+        help="Skip the short probe run (useful when called repeatedly by a sweep script).",
     )
     args = parser.parse_args()
 
@@ -563,15 +614,27 @@ def main() -> int:
 
     sumo_override = None
 
-    log("Running short probe (" + str(PROBE_SIM_DURATION_S) + "s) to verify setup...")
-    if not _run_probe(
-        binary, sim_dir, sim_results, ned_path, run_env, sumo_override, log
-    ):
-        atexit.unregister(cleanup)
-        if original_ini_content is not None:
-            _restore_omnetpp_ini(sim_dir, original_ini_content)
-        stop_ros2_bridge(we_started_docker, native_proc)
-        return 1
+    # --- Route generation when --num-vehicles is specified ---
+    if args.num_vehicles is not None:
+        if not _generate_routes(root, args.num_vehicles, log):
+            atexit.unregister(cleanup)
+            if original_ini_content is not None:
+                _restore_omnetpp_ini(sim_dir, original_ini_content)
+            stop_ros2_bridge(we_started_docker, native_proc)
+            return 1
+
+    if args.skip_probe:
+        log("Skipping probe (--skip-probe).")
+    else:
+        log("Running short probe (" + str(PROBE_SIM_DURATION_S) + "s) to verify setup...")
+        if not _run_probe(
+            binary, sim_dir, sim_results, ned_path, run_env, sumo_override, log
+        ):
+            atexit.unregister(cleanup)
+            if original_ini_content is not None:
+                _restore_omnetpp_ini(sim_dir, original_ini_content)
+            stop_ros2_bridge(we_started_docker, native_proc)
+            return 1
 
     for idx, (algo, seed) in enumerate(runs, 1):
         run_start = datetime.now(timezone.utc)
@@ -625,7 +688,10 @@ def main() -> int:
 
         log(f"  OK ({elapsed:.0f}s)")
 
-        dest_dir = out_root / algo / f"seed{seed}"
+        if args.num_vehicles is not None:
+            dest_dir = out_root / f"n{args.num_vehicles}" / algo / f"seed{seed}"
+        else:
+            dest_dir = out_root / algo / f"seed{seed}"
         dest_dir.mkdir(parents=True, exist_ok=True)
         prefix = f"{algo}-r{seed}"
         patterns = [
@@ -637,6 +703,11 @@ def main() -> int:
             f"{prefix}-summary.csv",
             f"{prefix}-vehicle-summary.csv",
             f"{prefix}-ros-events.jsonl",
+            # v2 scheduler outputs (HybridSDSM_v2, Greedy_v2, EventTriggered_v2,
+            # GreedyBSMImplied_v2). Absent for v1 runs, silently skipped by the
+            # src.exists() check below.
+            f"{prefix}-triggers.csv",
+            f"{prefix}-object-aoi.csv",
             f"{algo}-scalars.sca",
             f"{algo}-vectors.vec",
             f"{algo}-vectors.vci",
@@ -651,7 +722,7 @@ def main() -> int:
             "seed": seed,
             "timestamp": run_start.isoformat(),
             "sim_duration_s": args.sim_duration,
-            "num_vehicles": DEFAULT_NUM_VEHICLES,
+            "num_vehicles": args.num_vehicles if args.num_vehicles is not None else DEFAULT_NUM_VEHICLES,
             "config": algo,
             "params": {},
         }

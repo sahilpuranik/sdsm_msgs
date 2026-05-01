@@ -26,10 +26,12 @@ simple RosSDSMApp extends DemoBaseApplLayer
         // Literature alignment:
         //   - Event-triggered broadcasting (Sommer et al., 2010)
         //   - Age-of-Information freshness (Kaul et al., Infocom 2012)
-        //   - DCC-like congestion-aware adaptation (ETSI TS 102 687)
+        //   - DCC-inspired congestion-aware adaptation (cf. ETSI TS 102 687)
         // ==================================================================
         bool   greedyEnabled          = default(false);    // true=greedy, false=periodic baseline
         bool   hybridEnabled          = default(false);    // true=Hybrid ETSI+VoI+redundancy policy
+        string hybridVariant          = default("v1");    // "v1"=legacy utility, "v2"=new pipeline (Parts 2-5)
+        string greedyVariant          = default("v1");    // "v1"=legacy weighted-sum utility, "v2"=parallel-threshold scheduler shared with HybridSDSM_v2
         bool   bsmImpliedMode         = default(false);    // true=send SDSM header/state only (no object list)
         bool   useVoiObjectSelection  = default(false);    // rank objects by VoI score when true
         double greedyTickInterval @unit(s) = default(0.1s); // how often to evaluate send decision
@@ -44,6 +46,7 @@ simple RosSDSMApp extends DemoBaseApplLayer
         double greedyMinInterval @unit(s) = default(0.2s); // minimum inter-send time (guard)
         double greedyMaxInterval @unit(s) = default(5.0s); // maximum silence (starvation prevention)
         double congestionWindow  @unit(s) = default(1.0s); // CBR measurement window
+        double cbrEwmaAlpha           = default(0.3);      // EWMA smoothing factor for CBR (range (0,1])
         double redundancyEpsilon      = default(0.5);      // receiver-side novelty threshold
         double hybridThreshold        = default(1.2);      // hybrid utility threshold
         double hybridRedundancyWindow @unit(s) = default(1s); // sender-side object resend suppression window
@@ -57,9 +60,46 @@ simple RosSDSMApp extends DemoBaseApplLayer
         double hybridMinVoi           = default(0.0);      // minimum VoI required for inclusion
 
         // --- Multi-object SDSM ---
-        int    maxObjectsPerSdsm      = default(16);       // max detected objects per message (J3224: up to 256)
+        int    maxObjectsPerSdsm      = default(16);       // max detected objects per message (schema cap=32)
         double detectionRange @unit(m) = default(300m);     // include neighbors within this range
         double detectionMaxAge @unit(s) = default(2s);      // discard neighbors not heard for this long
+
+        // ==================================================================
+        // v2 scheduler parameters (used when hybridVariant="v2" or greedyVariant="v2";
+        // the parallel-threshold scheduler is shared across HybridSDSM_v2, Greedy_v2,
+        // EventTriggered_v2, and GreedyBSMImplied_v2 so comparisons isolate
+        // scheduler vs. object-selection effects)
+        // ==================================================================
+        // Part 4: trigger normalization + thresholds
+        double refSelfChange          = default(10.0);
+        double refDist                = default(5.0);
+        double T_max @unit(s)         = default(5.0s);
+        int    K_max                  = default(32);
+        double alpha_p                = default(1.0);
+        double alpha_v                = default(0.5);
+        double alpha_h                = default(2.0);
+        double tau_self               = default(0.4);
+        double tau_obj                = default(0.4);
+        double tau_time               = default(0.5);
+        double tau_cbr                = default(0.6);
+        // Part 3: VoI (Lyu et al., VNC 2025)
+        double w_novelty              = default(0.5);
+        double w_quality              = default(0.5);
+        double tau_decay @unit(s)     = default(1.5s);
+        double tau_quality @unit(s)   = default(2.0s);
+        double d_ref @unit(m)         = default(50.0m);
+        // Part 3: confidence gate (use when perception provides c(O); unused at conf=1.0)
+        double p_highConfidence       = default(0.85);
+        double tau_conf               = default(0.5);
+        // Part 2: spatial association (Allig/Wanielik IV 2019, Volk IV 2019)
+        double assocCoarseGate @unit(m) = default(5.0m);
+        double assocChiSquaredThreshold = default(13.28);
+        double assocSigmaPosSquared   = default(1.0);
+        double assocSigmaVelSquared   = default(0.25);
+        double assocPruneAge @unit(s) = default(3.0s);
+        // Part 3: LARM-inspired redundancy mitigation (cf. Thandavarayan et al., JNCA 2023).
+        // Uses knowledge-table cache hit, not the full LARM protocol.
+        double redundancyWindow @unit(s) = default(0.5s);
 
         // --- CSV metrics logging ---
         bool   csvLoggingEnabled       = default(true);
